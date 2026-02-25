@@ -8877,6 +8877,9 @@ void pp_cleanup_session(void)
     free_macros();
     free_Blocks();
     ipath_list = NULL;
+
+    /* Free the file hash table — hash_free_all frees both keys and data */
+    hash_free_all(&FileHash, true);
 }
 
 void pp_include_path(struct strlist *list)
