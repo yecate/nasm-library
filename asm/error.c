@@ -113,6 +113,16 @@ void error_pass_end(void)
     reset_warnings();
 }
 
+void error_cleanup_session(void)
+{
+    /* Free the initial warning stack entry kept by reset_warnings */
+    if (warning_stack) {
+        nasm_free(warning_stack);
+        warning_stack = NULL;
+        warning_state_init = NULL;
+    }
+}
+
 /*
  * This is called when processing a -w or -W option, or a warning directive.
  * Returns ok if the action was successful.

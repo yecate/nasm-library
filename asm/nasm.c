@@ -683,6 +683,14 @@ int main(int argc, char **argv)
     src_free();
     strlist_free(&include_path);
 
+    /* Free global filename strings */
+    nasm_free((void *)inname);
+    nasm_free((void *)outname);
+    nasm_free((void *)listname);
+    nasm_free((void *)errname);
+    nasm_free(depend_target);
+    error_cleanup_session();
+
     return terminate_after_phase();
 }
 

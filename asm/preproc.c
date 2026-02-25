@@ -1981,6 +1981,11 @@ static Token *free_Token(Token *t)
     nasm_assert(t->type != TOKEN_FREE);
 
     next = t->next;
+
+    /* Free heap-allocated text buffer before recycling */
+    if (t->len > INLINE_TEXT)
+        nasm_free(t->text.p.ptr);
+
     nasm_zero(*t);
     t->type = TOKEN_FREE;
     t->next = freeTokens;
@@ -2011,6 +2016,8 @@ static inline Token *alloc_Token(void)
 static Token *free_Token(Token *t)
 {
     Token *next = t->next;
+    if (t->len > INLINE_TEXT)
+        nasm_free(t->text.p.ptr);
     nasm_free(t);
     return next;
 }
@@ -8867,6 +8874,7 @@ void pp_cleanup_session(void)
     nasm_free(use_loaded);
     free_llist(predef);
     predef = NULL;
+    free_macros();
     free_Blocks();
     ipath_list = NULL;
 }
