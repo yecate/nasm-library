@@ -25,6 +25,9 @@ void memleak_free(void *ptr, const char *file, int line);
 char *memleak_strdup(const char *s, const char *file, int line);
 char *memleak_strndup(const char *s, size_t len, const char *file, int line);
 
+/* Print current allocation stats (for debugging cleanup) */
+void memleak_print_current(const char *label);
+
 /* Redirect allocation functions to tracking versions */
 #define nasm_malloc(size)           memleak_malloc(size, __FILE__, __LINE__)
 #define nasm_calloc(nelem, size)    memleak_calloc(nelem, size, __FILE__, __LINE__)

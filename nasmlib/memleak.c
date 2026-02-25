@@ -230,6 +230,61 @@ void memleak_cleanup(void)
     memleak_initialized = 0;
 }
 
+/* Print current allocation stats for debugging */
+void memleak_print_current(const char *label)
+{
+    size_t leak_count = 0;
+    size_t leak_bytes = 0;
+    struct mem_record *rec;
+
+    /* Simple grouping: track top allocation sites */
+    struct {
+        const char *file;
+        int line;
+        size_t count;
+        size_t bytes;
+    } top_sites[20];
+    int num_sites = 0;
+    int i;
+
+    if (!memleak_initialized)
+        return;
+
+    for (rec = mem_list_head; rec != NULL; rec = rec->next) {
+        if (rec->size > 0) {
+            int found = 0;
+            leak_count++;
+            leak_bytes += rec->size;
+
+            for (i = 0; i < num_sites; i++) {
+                if (top_sites[i].file == rec->file && top_sites[i].line == rec->line) {
+                    top_sites[i].count++;
+                    top_sites[i].bytes += rec->size;
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found && num_sites < 20) {
+                top_sites[num_sites].file = rec->file;
+                top_sites[num_sites].line = rec->line;
+                top_sites[num_sites].count = 1;
+                top_sites[num_sites].bytes = rec->size;
+                num_sites++;
+            }
+        }
+    }
+
+    fprintf(stderr, "[MEMLEAK] %s: %zu allocs, %zu bytes still alive\n",
+            label, leak_count, leak_bytes);
+    for (i = 0; i < num_sites; i++) {
+        if (top_sites[i].count > 5) {
+            fprintf(stderr, "  %s:%d => %zu allocs, %zu bytes\n",
+                    top_sites[i].file, top_sites[i].line,
+                    top_sites[i].count, top_sites[i].bytes);
+        }
+    }
+}
+
 /* Tracked allocation functions */
 void *memleak_malloc(size_t size, const char *file, int line)
 {

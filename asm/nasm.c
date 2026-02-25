@@ -682,8 +682,16 @@ int main(int argc, char **argv)
     stdscan_cleanup();
     src_free();
     strlist_free(&include_path);
+#ifdef NASM_MEMLEAK_DEBUG
+    memleak_print_current("main: after all cleanup");
+#endif
 
     /* Free global filename strings */
+    if (depend_file && (depend_file != inname) && (depend_file != outname) &&
+        (depend_file != listname) && (depend_file != errname)) {
+        nasm_free((void *)depend_file);
+        depend_file = NULL;
+    }
     nasm_free((void *)inname);
     nasm_free((void *)outname);
     nasm_free((void *)listname);

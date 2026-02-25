@@ -976,6 +976,33 @@ static void free_line(Line *l)
     nasm_free(l);
 }
 
+static void free_conds(Cond *conds)
+{
+    Cond *c, *tmp;
+
+    list_for_each_safe(c, tmp, conds)
+        nasm_free(c);
+}
+
+static void free_llist(Line *list);
+
+static void free_include(Include *i, bool check_endif)
+{
+    if (i->fp)
+        fclose(i->fp);
+
+    if (i->conds && check_endif)
+        nasm_fatal("expected `%%endif' before end of file");
+
+    free_conds(i->conds);
+    free_llist(i->expansion);
+    nasm_free(i->data);
+
+    put_mmacro(&i->mstk.mstk);
+    put_mmacro(&i->mstk.mmac);
+    nasm_free(i);
+}
+
 /*
  * Free a linked list of lines.
  */
@@ -2506,6 +2533,27 @@ struct file_hash_entry {
     int64_t include_pass;	  /* Pass in which last included (for %require) */
     enum incopen_mode omode;      /* Flags */
 };
+
+static void free_filehash(void)
+{
+    struct hash_iterator it;
+    const struct hash_node *np;
+
+    hash_for_each(&FileHash, it, np) {
+        struct file_hash_entry *fhe = np->data;
+
+        if (!fhe)
+            continue;
+
+        if (fhe->path && fhe->path != np->key)
+            nasm_free((void *)fhe->path);
+
+        nasm_free(fhe);
+        nasm_free((void *)np->key);
+    }
+
+    hash_free(&FileHash);
+}
 
 static FILE *inc_fopen(const char *file,
                        struct strlist *dhead,
@@ -5283,6 +5331,7 @@ static int do_directive(Token *tline, Token **output, bool suppressed)
          * and store an SMacro.
          */
         define_smacro(mname, casesense, macro_start, NULL);
+        delete_tlist(tline);
         break;
 
     case PP_DEFTOK:
@@ -8707,11 +8756,6 @@ static Token *pp_tokline(void)
              */
             Include *i = istk;
 
-            if (i->fp)
-                fclose(i->fp);
-            if (i->conds)
-                nasm_fatal("expected `%%endif' before end of file");
-
             istk = i->next;
 
             if (!i->nolist)
@@ -8725,9 +8769,7 @@ static Token *pp_tokline(void)
                     src_update(istk->where);
             }
 
-            put_mmacro(&i->mstk.mstk);
-            put_mmacro(&i->mstk.mmac);
-            nasm_free(i);
+            free_include(i, true);
             return &tok_pop;
         }
 
@@ -8854,12 +8896,11 @@ void pp_cleanup_pass(void)
     while (istk) {
         Include *i = istk;
         istk = istk->next;
-        fclose(i->fp);
         if (!istk && (ppdbg & PDBG_INCLUDE)) {
             /* Signal closing the top-level input file */
             dfmt->debug_include(false, src_nowhere(), i->where);
         }
-        nasm_free(i);
+        free_include(i, false);
     }
     while (cstk)
         ctx_pop();
@@ -8878,8 +8919,8 @@ void pp_cleanup_session(void)
     free_Blocks();
     ipath_list = NULL;
 
-    /* Free the file hash table — hash_free_all frees both keys and data */
-    hash_free_all(&FileHash, true);
+    /* Free the file hash table — free entries, keys, and table */
+    free_filehash();
 }
 
 void pp_include_path(struct strlist *list)

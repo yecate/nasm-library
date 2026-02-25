@@ -208,6 +208,8 @@ static union label *find_label(const char *label, bool create, bool *created)
     lptr = lpp ? *lpp : NULL;
 
     if (lptr || !create) {
+        if (label_str)
+            nasm_free(label_str);
         if (created)
             *created = false;
         return lptr;
