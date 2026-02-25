@@ -686,18 +686,19 @@ int main(int argc, char **argv)
     memleak_print_current("main: after all cleanup");
 #endif
 
-    /* Free global filename strings */
+    /* EPLIA: free auto-generated dependency filename */
     if (depend_file && (depend_file != inname) && (depend_file != outname) &&
         (depend_file != listname) && (depend_file != errname)) {
         nasm_free((void *)depend_file);
         depend_file = NULL;
     }
+    /* EPLIA: free global filename strings for clean memleak report */
     nasm_free((void *)inname);
     nasm_free((void *)outname);
     nasm_free((void *)listname);
     nasm_free((void *)errname);
     nasm_free(depend_target);
-    error_cleanup_session();
+    error_cleanup_session(); /* EPLIA: free warning_stack */
 
     return terminate_after_phase();
 }

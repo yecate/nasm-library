@@ -209,7 +209,7 @@ static union label *find_label(const char *label, bool create, bool *created)
 
     if (lptr || !create) {
         if (label_str)
-            nasm_free(label_str);
+            nasm_free(label_str); /* EPLIA: free local-label concatenation on early return */
         if (created)
             *created = false;
         return lptr;

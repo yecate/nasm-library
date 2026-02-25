@@ -54,6 +54,7 @@ static os_filename os_mangle_filename(const char *filename)
     size_t wclen;
     wchar_t *buf;
 
+    /* EPLIA: upstream bug fix — wclen is in characters, not bytes */
     wclen = MultiByteToWideChar(CP_ACP, MB_ERR_INVALID_CHARS, filename, -1, NULL, 0);
     if (!wclen)
         return NULL;

@@ -976,6 +976,7 @@ static void free_line(Line *l)
     nasm_free(l);
 }
 
+/* EPLIA: free_conds - release condition chain from Include stack */
 static void free_conds(Cond *conds)
 {
     Cond *c, *tmp;
@@ -986,6 +987,9 @@ static void free_conds(Cond *conds)
 
 static void free_llist(Line *list);
 
+/* EPLIA: free_include - properly release Include stack entry
+ * (conds, expansion lines+tokens, data, mmacro refs).
+ * Original code only did fclose+nasm_free(i), leaking everything else. */
 static void free_include(Include *i, bool check_endif)
 {
     if (i->fp)
@@ -2009,7 +2013,7 @@ static Token *free_Token(Token *t)
 
     next = t->next;
 
-    /* Free heap-allocated text buffer before recycling */
+    /* EPLIA: free heap-allocated text buffer before recycling (TOKEN_BLOCKSIZE!=0 branch) */
     if (t->len > INLINE_TEXT)
         nasm_free(t->text.p.ptr);
 
@@ -2043,6 +2047,7 @@ static inline Token *alloc_Token(void)
 static Token *free_Token(Token *t)
 {
     Token *next = t->next;
+    /* EPLIA: free heap-allocated text buffer (TOKEN_BLOCKSIZE==0 branch) */
     if (t->len > INLINE_TEXT)
         nasm_free(t->text.p.ptr);
     nasm_free(t);
@@ -2534,6 +2539,7 @@ struct file_hash_entry {
     enum incopen_mode omode;      /* Flags */
 };
 
+/* EPLIA: free_filehash - release file hash table entries, paths, and keys */
 static void free_filehash(void)
 {
     struct hash_iterator it;
@@ -5331,7 +5337,7 @@ static int do_directive(Token *tline, Token **output, bool suppressed)
          * and store an SMacro.
          */
         define_smacro(mname, casesense, macro_start, NULL);
-        delete_tlist(tline);
+        delete_tlist(tline); /* EPLIA: free intermediate token list (NASMX %defstr leak root cause) */
         break;
 
     case PP_DEFTOK:
@@ -8769,7 +8775,7 @@ static Token *pp_tokline(void)
                     src_update(istk->where);
             }
 
-            free_include(i, true);
+            free_include(i, true); /* EPLIA: use free_include instead of bare fclose+nasm_free */
             return &tok_pop;
         }
 
@@ -8900,7 +8906,7 @@ void pp_cleanup_pass(void)
             /* Signal closing the top-level input file */
             dfmt->debug_include(false, src_nowhere(), i->where);
         }
-        free_include(i, false);
+        free_include(i, false); /* EPLIA: use free_include instead of bare nasm_free */
     }
     while (cstk)
         ctx_pop();
@@ -8915,11 +8921,12 @@ void pp_cleanup_session(void)
     nasm_free(use_loaded);
     free_llist(predef);
     predef = NULL;
+    /* EPLIA: call free_macros in session cleanup to release macro definitions */
     free_macros();
     free_Blocks();
     ipath_list = NULL;
 
-    /* Free the file hash table — free entries, keys, and table */
+    /* EPLIA: free the file hash table — entries, keys, and table */
     free_filehash();
 }
 

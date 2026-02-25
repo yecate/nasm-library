@@ -130,7 +130,7 @@ int set_error_format(const char *fmt);
 void error_init(void);
 void error_pass_start(bool final);
 void error_pass_end(void);
-void error_cleanup_session(void);
+void error_cleanup_session(void); /* EPLIA: free warning_stack at exit */
 
 /* Process a warning option or directive */
 bool set_warning_status(const char *value);

@@ -571,7 +571,7 @@ static inline bool const_func overflow_general(int64_t value, unsigned int bytes
 /* try to get the system stack size */
 extern size_t nasm_get_stack_size_limit(void);
 
-/* Memory leak detection - must be after all nasm_malloc/free declarations */
+/* EPLIA: Memory leak detection - must be after all nasm_malloc/free declarations */
 #include "memleak.h"
 
 #endif

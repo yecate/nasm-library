@@ -113,6 +113,7 @@ void error_pass_end(void)
     reset_warnings();
 }
 
+/* EPLIA: free the initial warning stack entry kept by reset_warnings */
 void error_cleanup_session(void)
 {
     /* Free the initial warning stack entry kept by reset_warnings */
