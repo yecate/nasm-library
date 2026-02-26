@@ -1808,6 +1808,9 @@ static void assemble_file(const char *fname, struct strlist *depend_list)
 
 static void cleanup_embed_session(void)
 {
+    /* Ensure pass-scoped preprocessor state is always released, even
+     * when a fatal path longjmps out before normal pass teardown. */
+    pp_cleanup_pass();
     pp_cleanup_session();
 
     if (offsets) {
