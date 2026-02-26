@@ -90,6 +90,14 @@ void stdscan_cleanup(void)
 {
     stdscan_reset(NULL);
     nasm_free(stdscan_tempstorage);
+
+    /* EPLIA: reset static scanner state for repeated embedded sessions */
+    stdscan_tempstorage = NULL;
+    stdscan_tempsize = 0;
+    stdscan_templen = 0;
+    scan.bufptr = NULL;
+    scan.pushback = NULL;
+    scan.sstate = ss_init;
 }
 
 static void *stdscan_alloc(size_t bytes)
