@@ -1998,7 +1998,7 @@ static Token *tokenize(const char *line)
  *
  * alloc_Token() returns a zero-initialized token structure.
  */
-#define TOKEN_BLOCKSIZE 0 /* 4096 */ /* Number of tokens, not bytes */
+#define TOKEN_BLOCKSIZE 4096 /* Number of tokens, not bytes */
 
 #if TOKEN_BLOCKSIZE
 
@@ -2067,8 +2067,17 @@ static void free_Blocks(void)
 {
     Token *block, *blocktmp;
 
-    list_for_each_safe(block, blocktmp, tokenblocks)
+    /* Free heap-allocated text buffers before releasing token blocks */
+    list_for_each_safe(block, blocktmp, tokenblocks) {
+        size_t i;
+        for (i = 1; i < TOKEN_BLOCKSIZE; i++) {
+            if (block[i].type != TOKEN_FREE &&
+                block[i].type != TOKEN_BLOCK &&
+                block[i].len > INLINE_TEXT)
+                nasm_free(block[i].text.p.ptr);
+        }
         nasm_free(block);
+    }
 
     freeTokens = tokenblocks = NULL;
 }
@@ -4393,8 +4402,17 @@ static void user_error(enum preproc_token op, Token **tlinep)
     if (!*q)
         q = pp_directives[op];   /* Less confusing than an empty message */
 
-    nasm_error(severity, "%s", q);
-    nasm_free(p);               /* p == NULL if nothing to free */
+    /*
+     * Free the detoken buffer BEFORE nasm_error, because a fatal
+     * severity will longjmp and nasm_free(p) would never execute.
+     * Copy q to a stack buffer first since q may point into p.
+     */
+    {
+        char errbuf[256];
+        snprintf(errbuf, sizeof(errbuf), "%s", q);
+        nasm_free(p);
+        nasm_error(severity, "%s", errbuf);
+    }
 }
 
 /**
@@ -8767,6 +8785,7 @@ void pp_init(enum preproc_opt opt)
  * istk is NULL then we have reached end of input;
  */
 static Token tok_pop;           /* Dummy token placeholder */
+static char *pp_line;           /* current detoken'd line in pp_getline */
 
 static Token *pp_tokline(void)
 {
@@ -9062,8 +9081,9 @@ static Token *pp_tokline(void)
 
 char *pp_getline(void)
 {
-    char *line = NULL;
     Token *tline;
+
+    pp_line = NULL;
 
     while (true) {
         tline = pp_tokline();
@@ -9078,23 +9098,36 @@ char *pp_getline(void)
             /*
              * De-tokenize the line and emit it.
              */
-            line = detoken(tline, true);
+            pp_line = detoken(tline, true);
             delete_tlist(tline);
             break;
         }
     }
 
-    if (list_option('e') && istk && !istk->nolist && line && line[0]) {
-        char *buf = nasm_strcat(" ;;; ", line);
+    if (list_option('e') && istk && !istk->nolist && pp_line && pp_line[0]) {
+        char *buf = nasm_strcat(" ;;; ", pp_line);
         lfmt->line(LIST_MACRO, -1, buf);
         nasm_free(buf);
     }
 
-    return line;
+    /*
+     * Transfer ownership to the caller. pp_line is only non-NULL
+     * between detoken() and this point, so pp_cleanup_pass() can
+     * free it if a fatal longjmp fires in that window.
+     */
+    {
+        char *ret = pp_line;
+        pp_line = NULL;
+        return ret;
+    }
 }
 
 void pp_cleanup_pass(void)
 {
+    /* Free any in-flight detoken'd line lost to a fatal longjmp */
+    nasm_free(pp_line);
+    pp_line = NULL;
+
     if (defining) {
         if (defining->name) {
             nasm_nonfatal("end of file while still defining macro `%s'",

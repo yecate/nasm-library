@@ -98,6 +98,7 @@ static struct SAA *forwrefs;    /* keep track of forward references */
 static const struct forwrefinfo *forwref;
 
 static struct strlist *include_path;
+static char *assemble_line;         /* current line in assemble_file */
 static enum preproc_opt ppopt;
 struct nasm_user_data *nasm_user_data;
 
@@ -1642,7 +1643,6 @@ void print_final_report(bool failure)
 
 static void assemble_file(const char *fname, struct strlist *depend_list)
 {
-    char *line;
     insn output_ins;
     uint64_t prev_offset_changed;
     int64_t stall_count = 0; /* Make sure we make forward progress... */
@@ -1730,7 +1730,7 @@ static void assemble_file(const char *fname, struct strlist *depend_list)
 
         globallineno = 0;
 
-        while ((line = pp_getline())) {
+        while ((assemble_line = pp_getline())) {
             if (++globallineno > nasm_limit[LIMIT_LINES])
                 nasm_fatal("overall line count exceeds the maximum %"PRId64"\n",
                            nasm_limit[LIMIT_LINES]);
@@ -1739,18 +1739,19 @@ static void assemble_file(const char *fname, struct strlist *depend_list)
              * Here we parse our directives; this is not handled by the
              * main parser.
              */
-            if (process_directives(line))
+            if (process_directives(assemble_line))
                 goto end_of_line; /* Just do final cleanup */
 
             /* Not a directive, or even something that starts with [ */
-            parse_line(line, &output_ins, globl.bits);
+            parse_line(assemble_line, &output_ins, globl.bits);
             forward_refs(&output_ins);
             process_insn(&output_ins);
             cleanup_insn(&output_ins);
 
         end_of_line:
-            nasm_free(line);
-        }                       /* end while (line = pp_getline... */
+            nasm_free(assemble_line);
+            assemble_line = NULL;
+        }                       /* end while (assemble_line = pp_getline... */
 
         pp_cleanup_pass();
 
@@ -1808,6 +1809,10 @@ static void assemble_file(const char *fname, struct strlist *depend_list)
 
 static void cleanup_embed_session(void)
 {
+    /* Free any in-flight line lost to a fatal longjmp */
+    nasm_free(assemble_line);
+    assemble_line = NULL;
+
     /* Ensure pass-scoped preprocessor state is always released, even
      * when a fatal path longjmps out before normal pass teardown. */
     pp_cleanup_pass();
