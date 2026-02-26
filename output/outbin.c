@@ -530,8 +530,12 @@ static void bin_cleanup(void)
         saa_fwrite(r->target->contents, r->posn, mydata, r->bytes);
     }
 
-    /* Step 6: Write the section data to the output file. */
-    do_output();
+    /* Step 6: Write the section data to the output file.
+     * EPLIA: embedded library mode does not require writing to FILE* output.
+     * Avoid host-process stdout/stderr assumptions and keep results in-memory.
+     */
+    if (!nasm_user_data)
+        do_output();
 
     /* Step 7: Generate the map file. */
 

@@ -1820,7 +1820,7 @@ static void cleanup_embed_session(void)
 bool nasm_assemble_func(const char *func_name, struct nasm_user_data *data)
 {
     jmp_buf fatal_jmp;
-    bool success;
+    bool success = false;
 
     if (!func_name || !data || !data->codes || data->num_codes <= 0)
         return false;
@@ -1886,14 +1886,18 @@ bool nasm_assemble_func(const char *func_name, struct nasm_user_data *data)
     dfmt->init();
 
     error_set_fatal_jmpbuf(&fatal_jmp);
-    if (!setjmp(fatal_jmp))
+    if (!setjmp(fatal_jmp)) {
         assemble_file(inname, NULL);
+        success = !terminate_after_phase();
+        ofmt->cleanup();
+        close_output(!success);
+    } else {
+        /* Fatal path in embedded mode: never terminate host process. */
+        success = false;
+        close_output(true);
+    }
     error_set_fatal_jmpbuf(NULL);
 
-    success = !terminate_after_phase();
-
-    ofmt->cleanup();
-    close_output(!success);
     cleanup_embed_session();
 
     nasm_user_data = NULL;
