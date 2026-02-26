@@ -9104,8 +9104,6 @@ void pp_cleanup_session(void)
     nasm_free(use_loaded);
     free_llist(predef);
     predef = NULL;
-    /* EPLIA: call free_macros in session cleanup to release macro definitions */
-    free_macros();
     free_Blocks();
     ipath_list = NULL;
 
