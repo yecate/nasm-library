@@ -1836,6 +1836,7 @@ static void cleanup_embed_session(void)
 bool nasm_assemble_func(const char *func_name, struct nasm_user_data *data)
 {
     jmp_buf fatal_jmp;
+    jmp_buf cleanup_jmp;
     bool success = false;
 
     if (!func_name || !data || !data->codes || data->num_codes <= 0)
@@ -1912,9 +1913,15 @@ bool nasm_assemble_func(const char *func_name, struct nasm_user_data *data)
         success = false;
         close_output(true);
     }
-    error_set_fatal_jmpbuf(NULL);
 
-    cleanup_embed_session();
+    error_set_fatal_jmpbuf(&cleanup_jmp);
+    if (!setjmp(cleanup_jmp)) {
+        cleanup_embed_session();
+    } else {
+        /* Cleanup fatal path should also return to host instead of exiting. */
+        success = false;
+    }
+    error_set_fatal_jmpbuf(NULL);
 
     nasm_user_data = NULL;
     return success;
