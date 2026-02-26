@@ -51,6 +51,14 @@ void eval_cleanup(void)
     while (ntempexprs)
         nasm_free(tempexprs[--ntempexprs]);
     nasm_free(tempexprs);
+
+    /* EPLIA: reset static evaluator state for repeated embedded sessions */
+    ntempexprs = 0;
+    tempexprs = NULL;
+    tempexprs_size = 0;
+    tempexpr = NULL;
+    ntempexpr = 0;
+    tempexpr_size = 0;
 }
 
 /*
