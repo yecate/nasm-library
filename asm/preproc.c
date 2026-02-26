@@ -9079,9 +9079,6 @@ void pp_cleanup_pass(void)
         defining = NULL;
     }
 
-    while (cstk)
-        ctx_pop();
-    free_macros();
     while (istk) {
         Include *i = istk;
         istk = istk->next;
@@ -9091,6 +9088,9 @@ void pp_cleanup_pass(void)
         }
         free_include(i, false); /* EPLIA: use free_include instead of bare nasm_free */
     }
+    while (cstk)
+        ctx_pop();
+    free_macros();
     while (cstk)
         ctx_pop();
     src_set_fname(NULL);
