@@ -1199,8 +1199,10 @@ static int32_t bin_secname(char *name, int *bits)
         if (!pass_first())
             bin_define_section_labels();
 
-        /* Establish the default (.text) section. */
-        *bits = 16;
+        /* Establish the default (.text) section.
+         * EPLIA: embedded library mode defaults to 32-bit, while CLI bin stays 16-bit.
+         */
+        *bits = nasm_user_data ? 32 : 16;
         sec = find_section_by_name(".text");
         sec->flags |= TYPE_DEFINED | TYPE_PROGBITS;
         if (nasm_user_data && nasm_user_data->switch_section_handler) {
