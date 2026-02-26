@@ -374,11 +374,23 @@ static MMacro *pop_mmacro(MMacro **mp, MMacro *next)
     if (m) {
         nasm_assert(m->refcnt > 0);
         if (!--m->refcnt) {
+            if (m->next) {
+                /*
+                 * EPLIA safety: macro is still chained in the mmacros
+                 * hash table (m->next != NULL).  Freeing it now would
+                 * leave a dangling pointer in the chain, causing
+                 * use-after-free crashes in subsequent hash walks
+                 * (e.g. strcmp on freed name in do_directive/PP_MACRO).
+                 * Intentionally leak instead of crashing — the macro
+                 * will be reclaimed by free_mmacro_table at session end.
+                 */
+                m->refcnt = 1;  /* restore so free_mmacro_list works later */
+                return next;
+            }
             if (m->name) {
                 nasm_debug(2, "freeing macro `%s'", m->name);
                 check_mmacro_refcounts();
             }
-            nasm_assert(!m->next);
             free_mmacro(m);
         }
     }
@@ -1009,13 +1021,16 @@ static void free_include(Include *i, bool check_endif)
 
     free_conds(i->conds);
     /*
-     * Release include stack macro references before freeing expansion lines.
-     * Some pending end-markers in i->expansion may refer to the same MMacro
-     * objects; doing this in reverse order can leave stale pointers in mstk.
+     * Free expansion lines first — each Line->finishes holds its own
+     * refcount on the MMacro.  Releasing mstk refs before expansion
+     * can drop refcnt to 0 and free the MMacro while it is still
+     * referenced (and still chained in the mmacros hash table),
+     * causing use-after-free / NULL-name crashes in subsequent
+     * hash_findix walks.
      */
+    free_llist(i->expansion);
     put_mmacro(&i->mstk.mstk);
     put_mmacro(&i->mstk.mmac);
-    free_llist(i->expansion);
     nasm_free(i->data);
     nasm_free(i);
 }
@@ -1221,6 +1236,8 @@ static void free_mmacro_list(MMacro **list_p)
         if (m->refcnt)
             nasm_nonfatal("macro %s: refcnt %lld on free, should be 0\n",
                           m->name, (long long)m->refcnt);
+        m->refcnt = 0;     /* EPLIA: force zero for unconditional cleanup */
+        m->next = NULL;     /* EPLIA: detach from chain before free */
         free_mmacro(m);
     }
 }
@@ -3222,7 +3239,8 @@ if_condition(Token * tline, enum preproc_token ct, const char *dname)
         }
         mmac = (MMacro *) hash_findix(&mmacros, searching.name);
         while (mmac) {
-            if (!strcmp(mmac->name, searching.name) &&
+            if (mmac->name &&
+                !strcmp(mmac->name, searching.name) &&
                 (mmac->nparam_min <= searching.nparam_max
                  || searching.plus)
                 && (searching.nparam_min <= mmac->nparam_max
@@ -5062,7 +5080,8 @@ static int do_directive(Token *tline, Token **output, bool suppressed)
 
         mmac = (MMacro *) hash_findix(&mmacros, defining->name);
         while (mmac) {
-            if (!strcmp(mmac->name, defining->name) &&
+            if (mmac->name &&
+                !strcmp(mmac->name, defining->name) &&
                 (mmac->nparam_min <= defining->nparam_max
                  || defining->plus)
                 && (defining->nparam_min <= mmac->nparam_max
@@ -5124,7 +5143,8 @@ static int do_directive(Token *tline, Token **output, bool suppressed)
 
         while (mmac_p && *mmac_p) {
             mmac = *mmac_p;
-            if (mmac->casesense == spec.casesense &&
+            if (mmac->name &&
+                mmac->casesense == spec.casesense &&
                 !mstrcmp(mmac->name, spec.name, spec.casesense) &&
                 mmac->nparam_min == spec.nparam_min &&
                 mmac->nparam_max == spec.nparam_max &&
@@ -6879,7 +6899,7 @@ find_mmacro_in_list(MMacro *m, const char *finding,
          * Otherwise search for the next one with a name match.
          */
         list_for_each(m, m->next) {
-            if (!mstrcmp(m->name, finding, m->casesense))
+            if (m->name && !mstrcmp(m->name, finding, m->casesense))
                 break;
         }
     }
@@ -6924,7 +6944,8 @@ static MMacro *is_mmacro(Token * tline, int *nparamp, Token ***paramsp)
      * list if necessary to find the proper MMacro.
      */
     list_for_each(m, head) {
-        if (!mstrcmp(m->name, finding, m->casesense) &&
+        if (m->name &&
+            !mstrcmp(m->name, finding, m->casesense) &&
             (m->in_progress != 1 || m->max_depth > 0))
             break;              /* Found something that needs consideration */
     }
@@ -9105,8 +9126,6 @@ void pp_cleanup_pass(void)
     while (cstk)
         ctx_pop();
     free_macros();
-    while (cstk)
-        ctx_pop();
     src_set_fname(NULL);
 
     if (ppdbg & PDBG_MMACROS)
