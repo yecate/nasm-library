@@ -4489,7 +4489,9 @@ static int do_directive(Token *tline, Token **output, bool suppressed)
      * we should ignore all directives except for condition
      * directives.
      */
-    if (suppressed && !is_condition(op)) {
+    if ((suppressed ||
+         (istk->mstk.mstk && !istk->mstk.mstk->in_progress)) &&
+        !is_condition(op)) {
         return NO_DIRECTIVE_FOUND;
     }
 
