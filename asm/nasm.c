@@ -331,6 +331,22 @@ static void define_macros(void)
         snprintf(temp, sizeof(temp), "__?DEBUG_FORMAT?__=%s", dfmt->shortname);
         pp_pre_define(temp);
     }
+
+    /*
+     * EPLIA compatibility aliases (from legacy embedded nasmlib):
+     * ptr -> __?masm_ptr?__, and MASM size aliases.
+     */
+    snprintf(temp, sizeof(temp), "ptr=__?masm_ptr?__");
+    pp_pre_idefine(temp);
+
+    snprintf(temp, sizeof(temp), "tbyte=tword");
+    pp_pre_idefine(temp);
+    snprintf(temp, sizeof(temp), "xmmword=oword");
+    pp_pre_idefine(temp);
+    snprintf(temp, sizeof(temp), "ymmword=yword");
+    pp_pre_idefine(temp);
+    snprintf(temp, sizeof(temp), "zmmword=zword");
+    pp_pre_idefine(temp);
 }
 
 /*
