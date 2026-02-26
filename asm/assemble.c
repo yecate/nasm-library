@@ -13,6 +13,7 @@
 
 #include "nasm.h"
 #include "nasmlib.h"
+#include "saa.h"
 #include "error.h"
 #include "assemble.h"
 #include "insns.h"
@@ -4043,6 +4044,82 @@ static inline void list_nonfinal_pass(int64_t start)
         do_list_nonfinal_pass(start);
 }
 
+static inline const char *current_section_name(void)
+{
+    const char *name = nasm_section_name(location.segment);
+    return (name && name[0]) ? name : "";
+}
+
+static inline void notify_label_handler(insn *ins)
+{
+    if (!pass_first() || !nasm_user_data || !nasm_user_data->label_handler ||
+        !ins->label || !ins->label[0])
+        return;
+
+    nasm_user_data->label_handler(nasm_user_data, (char *)current_section_name(),
+                                  ins->label);
+}
+
+static inline struct SAA *resolve_section_content(void)
+{
+    struct SAA *section_content = nasm_outbin_get_section_content(location.segment);
+    if (!section_content)
+        section_content = nasm_outbin_get_text_section_content();
+    return section_content;
+}
+
+static inline void notify_output_handler(insn *ins, struct SAA *section_content,
+                                         size_t before)
+{
+    size_t after;
+    size_t increment_size;
+    const char *section_name;
+    bool is_text_section;
+    bool is_const_section;
+
+    if (!pass_final() || !nasm_user_data || !section_content)
+        return;
+
+    section_name = current_section_name();
+    is_text_section = !strcmp(section_name, ".text");
+    is_const_section = !nasm_stricmp(section_name, NASM_CONST_SEGMENT_NAME);
+
+    if (ins->label && ins->label[0]) {
+        nasm_free(nasm_user_data->last_label_name);
+        nasm_user_data->last_label_name = nasm_strdup(ins->label);
+    }
+
+    after = section_content->datalen;
+    increment_size = after - before;
+    if (!increment_size)
+        return;
+
+    if (increment_size > nasm_user_data->out_buffer_size) {
+        nasm_user_data->out_buffer_size = increment_size;
+        nasm_user_data->out_buffer =
+            nasm_realloc(nasm_user_data->out_buffer, increment_size);
+        if (!nasm_user_data->out_buffer_size)
+            return;
+    }
+
+    saa_fread(section_content, before, nasm_user_data->out_buffer, increment_size);
+
+    if (is_text_section && nasm_user_data->assemble_handler) {
+        nasm_user_data->assemble_handler(
+            nasm_user_data, (uint8_t *)nasm_user_data->out_buffer, increment_size,
+            globl.bits, ins, NULL, NULL);
+    } else if (is_const_section && nasm_user_data->const_handler) {
+        if (!nasm_user_data->last_label_name ||
+            !nasm_user_data->last_label_name[0]) {
+            nasm_fatal("nasm_ia_const section must have label");
+            return;
+        }
+        nasm_user_data->const_handler(
+            nasm_user_data, (uint8_t *)nasm_user_data->out_buffer, increment_size,
+            before, NULL);
+    }
+}
+
 /*
  * Process a single instruction without TIMES; this is a common case
  * so optimize it.
@@ -4050,18 +4127,26 @@ static inline void list_nonfinal_pass(int64_t start)
 static void process_one_insn(insn *ins)
 {
     int64_t l;
+    size_t before = 0;
+    struct SAA *section_content = NULL;
 
     ins->loc = location;
+    notify_label_handler(ins);
+
     if (!pass_final()) {
         l = insn_size(ins);
         if (l < 0)
             return;             /* Invalid instruction */
         list_nonfinal_pass(ins->loc.offset);
     } else {
+        section_content = resolve_section_content();
+        if (section_content)
+            before = section_content->datalen;
         l = assemble(ins);
         nasm_assert(l >= 0);    /* Invalid instruction here: bad */
     }
     increment_offset(l);
+    notify_output_handler(ins, section_content, before);
 }
 
 /*
@@ -4075,8 +4160,11 @@ static void process_times_insn(insn *ins)
 {
     int64_t l;
     insn tmpins;
+    size_t before = 0;
+    struct SAA *section_content = NULL;
 
     ins->loc = location;
+    notify_label_handler(ins);
 
     /*
      * NOTE: insn_size() and therefore assemble() can change
@@ -4102,6 +4190,10 @@ static void process_times_insn(insn *ins)
     } else {
         int64_t times;
 
+        section_content = resolve_section_content();
+        if (section_content)
+            before = section_content->datalen;
+
         tmpins = *ins;
         l = assemble(&tmpins);
         nasm_assert(l >= 0);    /* Invalid instruction here: bad */
@@ -4124,6 +4216,8 @@ static void process_times_insn(insn *ins)
         }
         lfmt->downlevel(LIST_TIMES);
     }
+
+    notify_output_handler(ins, section_content, before);
 }
 
 /*

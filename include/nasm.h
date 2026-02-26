@@ -1579,4 +1579,120 @@ extern const char *outname;     /* output filename */
  */
 int64_t switch_segment(int32_t segment);
 
+/*
+ * InlineAssembler compatibility hooks.
+ * These are intentionally kept as a thin extension layer so that
+ * upstream NASM code paths remain mostly unchanged.
+ */
+struct nasm_code {
+    uint8_t *ptr;         /* Source-side pointer */
+    size_t offset;        /* Source-side offset */
+    const char *inst;     /* Instruction text */
+    size_t inst_size;     /* Encoded instruction size */
+    void *data;           /* User payload */
+    size_t index_inst;    /* Instruction index in source line */
+    bool is_comment;      /* Comment/placeholder marker */
+    bool is_entry;        /* Entry marker */
+};
+
+struct Token;
+struct nasm_user_data;
+
+typedef void (*nasm_report)(struct nasm_user_data *nasm_user_data,
+                            size_t offset, const char *format, ...);
+typedef void (*nasm_assemble_handler)(struct nasm_user_data *nasm_user_data,
+                                      uint8_t *data, size_t size, int bits,
+                                      void *instruction, char *line,
+                                      char *macro_name);
+typedef void (*nasm_const_handler)(struct nasm_user_data *nasm_user_data,
+                                   uint8_t *data, size_t size,
+                                   size_t offset, char *line);
+typedef bool (*nasm_symbol_handler)(struct nasm_user_data *nasm_user_data,
+                                    char *symbol_ptr, bool use);
+typedef void (*nasm_label_handler)(struct nasm_user_data *nasm_user_data,
+                                   const char *section_name, char *label);
+typedef void (*nasm_label_define_handler)(struct nasm_user_data *nasm_user_data,
+                                          char *name, int32_t segment,
+                                          int64_t offset, int is_global,
+                                          char *special);
+typedef void (*nasm_label_used_handler)(struct nasm_user_data *nasm_user_data,
+                                        enum label_type lbtype, char *label,
+                                        int64_t *offset);
+typedef void (*nasm_smacro_expand_handler)(struct nasm_user_data *nasm_user_data,
+                                           void *m, void **params,
+                                           int nparams);
+typedef void (*nasm_cond_false_handler)(struct nasm_user_data *nasm_user_data);
+typedef size_t (*nasm_offsetof_handler)(struct nasm_user_data *nasm_user_data,
+                                        const char *datatype,
+                                        const char *member);
+typedef size_t (*nasm_sizeof_handler)(struct nasm_user_data *nasm_user_data,
+                                      const char *name, int is_mult);
+typedef char *(*nasm_expand_mmac_params_handler)(
+    struct nasm_user_data *nasm_user_data, struct Token *tline);
+typedef void (*nasm_mmac_start_end_handler)(
+    struct nasm_user_data *nasm_user_data, const char *macro_name,
+    int is_start);
+typedef void (*nasm_expand_mmac_line_handler)(
+    struct nasm_user_data *nasm_user_data, const char *line_source);
+typedef void (*nasm_switch_section_handler)(
+    struct nasm_user_data *nasm_user_data, const char *section_name,
+    int32_t segment, int flags, uint64_t align);
+typedef size_t (*nasm_hash_func)(const char *str);
+
+typedef void *(*define_smacro_num_func)(const char *mname, size_t def);
+typedef void *(*define_smacro_express_func)(const char *mname,
+                                            const char *def);
+typedef void (*define_label_func)(const char *label, int32_t segment,
+                                  int64_t offset, bool normal);
+
+struct nasm_user_data {
+    enum pass_type pass_type;
+    void (*preproc_init)(struct nasm_user_data *);
+    nasm_report report;
+    nasm_symbol_handler symbol_handler;
+    nasm_assemble_handler assemble_handler;
+    nasm_const_handler const_handler;
+    nasm_cond_false_handler cond_false_handler;
+    nasm_label_handler label_handler;
+    nasm_label_define_handler label_define_handler;
+    nasm_label_used_handler label_used_handler;
+    nasm_smacro_expand_handler smacro_expand_handler;
+    nasm_expand_mmac_params_handler expand_mmac_params_handler;
+    nasm_mmac_start_end_handler mmac_start_end_handler;
+    nasm_expand_mmac_line_handler expand_mmac_line_handler;
+    nasm_offsetof_handler offsetof_handler;
+    nasm_sizeof_handler sizeof_handler;
+    nasm_switch_section_handler switch_section_handler;
+    nasm_hash_func hash_func;
+    void *data;
+    struct nasm_code *codes;
+    struct nasm_code *current_code;
+    int num_codes;
+    int read_line;
+    bool preproc;
+    define_smacro_num_func define_smacro_num;
+    define_smacro_express_func define_smacro_express;
+    define_label_func define_label;
+    bool module_compile;
+    bool insert_code;
+    void *out_buffer;
+    size_t out_buffer_size;
+    char *last_label_name;
+};
+
+extern struct nasm_user_data *nasm_user_data;
+
+#define NASM_CONST_SEGMENT_NAME ".rdata"
+#define NASM_CONST_SEGMENT_LABEL_PREFIX "NASM_IA_CONST_YECATE869443499_"
+
+char *nasm_readline(void);
+bool nasm_assemble_func(const char *func_name, struct nasm_user_data *data);
+void *define_smacro_num(const char *mname, size_t def);
+void *define_smacro_express(const char *mname, const char *def);
+struct SAA *nasm_outbin_get_text_section_content(void);
+struct SAA *nasm_outbin_get_section_content(int segment);
+char *nasm_smacro_get_name(void *m);
+const char *nasm_token_get_text(void *t);
+const char *nasm_section_name(int32_t segment);
+
 #endif  /* NASM_NASM_H */

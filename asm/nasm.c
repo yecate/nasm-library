@@ -6,6 +6,7 @@
  */
 
 #include "compiler.h"
+#include <setjmp.h>
 
 
 #include "nasm.h"
@@ -47,6 +48,7 @@ static void open_and_process_respfile(char *, int);
 static void parse_cmdline(int, char **, int);
 static void assemble_file(const char *, struct strlist *);
 static void help(FILE *out, const char *what);
+static void cleanup_embed_session(void);
 
 static bool using_debug_info;
 static const char *debug_format;
@@ -97,6 +99,7 @@ static const struct forwrefinfo *forwref;
 
 static struct strlist *include_path;
 static enum preproc_opt ppopt;
+struct nasm_user_data *nasm_user_data;
 
 #define OP_NORMAL           (1U << 0)
 #define OP_PREPROCESS       (1U << 1)
@@ -228,6 +231,30 @@ int64_t switch_segment(int32_t segment)
     return location.offset;
 }
 
+char *nasm_readline(void)
+{
+    struct nasm_code *code;
+
+    if (!nasm_user_data || !nasm_user_data->codes || nasm_user_data->num_codes <= 0)
+        return NULL;
+
+    if (nasm_user_data->read_line >= nasm_user_data->num_codes) {
+        nasm_user_data->read_line = 0;
+        return NULL;
+    }
+
+    code = &nasm_user_data->codes[nasm_user_data->read_line++];
+    nasm_user_data->current_code = code;
+
+    if (!code || !code->inst) {
+        nasm_user_data->read_line = 0;
+        return NULL;
+    }
+
+    code->inst_size = 0;
+    return nasm_strdup(code->inst);
+}
+
 static int64_t set_curr_offs(int64_t l_off)
 {
     location.offset = l_off;
@@ -242,6 +269,9 @@ static int64_t set_curr_offs(int64_t l_off)
 int64_t increment_offset(int64_t delta)
 {
     int64_t newoffs = location.offset + delta;
+
+    if (nasm_user_data && nasm_user_data->current_code && delta > 0)
+        nasm_user_data->current_code->inst_size += (size_t)delta;
 
     if (unlikely(!delta))
         return newoffs;
@@ -315,6 +345,13 @@ static void define_macros(void)
 static void preproc_init(struct strlist *ipath)
 {
     pp_init(ppopt);
+    if (nasm_user_data) {
+        nasm_user_data->define_smacro_num = define_smacro_num;
+        nasm_user_data->define_smacro_express = define_smacro_express;
+        nasm_user_data->define_label = define_label;
+        if (nasm_user_data->preproc_init)
+            nasm_user_data->preproc_init(nasm_user_data);
+    }
     define_macros();
     pp_include_path(ipath);
 }
@@ -1745,6 +1782,116 @@ static void assemble_file(const char *fname, struct strlist *depend_list)
     print_final_report(terminate_after_phase());
 
     lfmt->cleanup();
+}
+
+static void cleanup_embed_session(void)
+{
+    pp_cleanup_session();
+
+    if (offsets) {
+        raa_free(offsets);
+        offsets = NULL;
+    }
+
+    if (forwrefs) {
+        saa_free(forwrefs);
+        forwrefs = NULL;
+    }
+
+    eval_cleanup();
+    stdscan_cleanup();
+    cleanup_labels();
+    src_free();
+    strlist_free(&include_path);
+    error_cleanup_session();
+
+    nasm_free((void *)inname);
+    inname = NULL;
+    nasm_free((void *)outname);
+    outname = NULL;
+}
+
+bool nasm_assemble_func(const char *func_name, struct nasm_user_data *data)
+{
+    jmp_buf fatal_jmp;
+    bool success;
+
+    if (!func_name || !data || !data->codes || data->num_codes <= 0)
+        return false;
+
+    nasm_user_data = data;
+    nasm_user_data->current_code = NULL;
+    nasm_user_data->read_line = 0;
+    nasm_user_data->define_smacro_num = define_smacro_num;
+    nasm_user_data->define_smacro_express = define_smacro_express;
+    nasm_user_data->define_label = define_label;
+
+    erropt.file = stderr;
+    _progname = "nasm";
+
+    memcpy(warning_state, warning_default, sizeof warning_state);
+    timestamp();
+    set_cpu(NULL);
+    cmd_cpu = cpu;
+    set_default_limits();
+
+    include_path = strlist_alloc(true);
+
+    reset_global_defaults(0);
+    _pass_type = PASS_INIT;
+    _passn = 0;
+
+    nasm_ctype_init();
+    src_init();
+    init_labels();
+
+    offsets = raa_init();
+    forwrefs = saa_init((int32_t)sizeof(struct forwrefinfo));
+
+    operating_mode = OP_NORMAL;
+    using_debug_info = false;
+    debug_format = NULL;
+    keep_all = true;
+    cmd_sb = 32;
+
+    inname = nasm_strdup(func_name);
+    outname = nasm_strdup(func_name);
+
+    if (!using_debug_info) {
+        dfmt = &null_debug_form;
+    } else if (!debug_format) {
+        dfmt = ofmt->default_dfmt;
+    } else {
+        dfmt = dfmt_find(ofmt, debug_format);
+        if (!dfmt)
+            dfmt = &null_debug_form;
+    }
+
+    if (tasm_compatible_mode) {
+        ppopt |= PP_TASM;
+        nasm_ctype_tasm_mode();
+    }
+
+    preproc_init(include_path);
+    error_init();
+
+    ofile = stdout;
+    ofmt->init();
+    dfmt->init();
+
+    error_set_fatal_jmpbuf(&fatal_jmp);
+    if (!setjmp(fatal_jmp))
+        assemble_file(inname, NULL);
+    error_set_fatal_jmpbuf(NULL);
+
+    success = !terminate_after_phase();
+
+    ofmt->cleanup();
+    close_output(!success);
+    cleanup_embed_session();
+
+    nasm_user_data = NULL;
+    return success;
 }
 
 void close_output(bool error)

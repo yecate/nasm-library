@@ -825,6 +825,11 @@ static void bin_deflabel(char *name, int32_t segment, int64_t offset,
         *ltp = &((**ltp)->next);
     }
 
+    if (nasm_user_data && nasm_user_data->label_define_handler) {
+        nasm_user_data->label_define_handler(nasm_user_data, name, segment,
+                                             offset, is_global, special);
+    }
+
 }
 
 /* These constants and the following function are used
@@ -1194,6 +1199,11 @@ static int32_t bin_secname(char *name, int *bits)
         *bits = 16;
         sec = find_section_by_name(".text");
         sec->flags |= TYPE_DEFINED | TYPE_PROGBITS;
+        if (nasm_user_data && nasm_user_data->switch_section_handler) {
+            nasm_user_data->switch_section_handler(nasm_user_data, ".text",
+                                                   sec->vstart_index,
+                                                   sec->flags, sec->align);
+        }
         return sec->vstart_index;
     }
 
@@ -1226,6 +1236,12 @@ static int32_t bin_secname(char *name, int *bits)
     if (!pass_first() && !(sec->flags & TYPE_DEFINED))
         sec->flags |= TYPE_DEFINED | TYPE_PROGBITS;
 #endif
+
+    if (nasm_user_data && nasm_user_data->switch_section_handler) {
+        nasm_user_data->switch_section_handler(nasm_user_data, name,
+                                               sec->vstart_index, sec->flags,
+                                               sec->align);
+    }
 
     return sec->vstart_index;
 }
@@ -1632,5 +1648,26 @@ const struct ofmt of_srec = {
     bin_cleanup,
     NULL                        /* pragma list */
 };
+
+struct SAA *
+nasm_outbin_get_text_section_content(void)
+{
+    struct Section *sec = find_section_by_name(".text");
+    return sec ? sec->contents : NULL;
+}
+
+struct SAA *
+nasm_outbin_get_section_content(int segment)
+{
+    struct Section *sec = find_section_by_index(segment);
+    return sec ? sec->contents : NULL;
+}
+
+const char *
+nasm_section_name(int32_t segment)
+{
+    struct Section *sec = find_section_by_index(segment);
+    return sec ? sec->name : "";
+}
 
 #endif                          /* #ifdef OF_BIN */

@@ -31,6 +31,7 @@
  */
 
 #include "compiler.h"
+#include <stdint.h>
 
 #include "nctype.h"
 
@@ -88,6 +89,14 @@ typedef struct Token Token;
 typedef struct Line Line;
 typedef struct Include Include;
 typedef struct Cond Cond;
+
+#define NASM_INLINE_INPUT_SENTINEL ((FILE *)(uintptr_t)869443499)
+
+static inline bool
+include_fp_is_inline(FILE *fp)
+{
+    return fp == NASM_INLINE_INPUT_SENTINEL;
+}
 
 /*
  * The current set of multi-line macros we have defined.
@@ -992,7 +1001,7 @@ static void free_llist(Line *list);
  * Original code only did fclose+nasm_free(i), leaking everything else. */
 static void free_include(Include *i, bool check_endif)
 {
-    if (i->fp)
+    if (i->fp && !include_fp_is_inline(i->fp))
         fclose(i->fp);
 
     if (i->conds && check_endif)
@@ -1526,10 +1535,18 @@ static char *read_line(void)
     char *line;
     FILE *f = istk->fp;
 
-    if (f)
-        line = line_from_file(f);
-    else
+    if (f) {
+        if (include_fp_is_inline(f)) {
+            istk->where.lineno += istk->lineskip + istk->lineinc;
+            src_set_linnum(istk->where.lineno);
+            istk->lineskip = 0;
+            line = nasm_readline();
+        } else {
+            line = line_from_file(f);
+        }
+    } else {
         line = line_from_stdmac();
+    }
 
     if (!line)
         return NULL;
@@ -6123,6 +6140,11 @@ expand_smacro_with_params(SMacro *m, Token *mstart, Token **params,
 
     /* Note: we own the expansion this returns. */
     t = m->expand(m, params, nparam);
+    if (pass_final() && nasm_user_data &&
+        nasm_user_data->smacro_expand_handler) {
+        nasm_user_data->smacro_expand_handler(nasm_user_data, m,
+                                              (void **)params, nparam);
+    }
 
     tup = tline = NULL;
     cond_comma = false;
@@ -6470,6 +6492,38 @@ static SMacro *expand_one_smacro(Token ***tpp)
         goto not_a_macro;
     } else if (tline->type == TOKEN_ID || tline->type == TOKEN_PREPROC_ID) {
         head = (SMacro *)hash_findix(&smacros, mname);
+
+        if (nasm_user_data && !nasm_user_data->module_compile &&
+            nasm_user_data->symbol_handler) {
+            SMacro *sym;
+
+            for (sym = head; sym; sym = sym->next) {
+                if (sym->expand == smacro_expand_default &&
+                    !mstrcmp(sym->name, mname, sym->casesense)) {
+                    nasm_user_data->symbol_handler(nasm_user_data, (char *)mname,
+                                                   true);
+                    break;
+                }
+            }
+
+            if (nasm_user_data->current_code && !head) {
+                struct tokenval tv;
+                int token_type;
+
+                nasm_zero(tv);
+                tv.t_charptr = nasm_strdup(mname);
+                token_type = nasm_token_hash(mname, &tv);
+                if (tv.t_integer == 0 && tv.t_inttwo == 0 &&
+                    tv.t_flag == 0 && token_type == TOKEN_ID) {
+                    if (nasm_user_data->symbol_handler(nasm_user_data,
+                                                       (char *)mname, false)) {
+                        head = (SMacro *)hash_findix(&smacros, mname);
+                    }
+                }
+                nasm_free(tv.t_charptr);
+                tv.t_charptr = NULL;
+            }
+        }
     } else if (tline->type == TOKEN_LOCAL_MACRO) {
         Context *ctx = get_ctx(mname, &mname);
         head = ctx ? (SMacro *)hash_findix(&ctx->localmac, mname) : NULL;
@@ -7452,6 +7506,9 @@ static int expand_mmacro(Token * tline)
             debug_macro_start(m, src_where());
     }
 
+    if (nasm_user_data && nasm_user_data->mmac_start_end_handler && m->name)
+        nasm_user_data->mmac_start_end_handler(nasm_user_data, m->name, 1);
+
     if (!istk->noline)
         src_macro_push(get_mmacro(m), istk->where);
 
@@ -7885,6 +7942,84 @@ stdmac_count(const SMacro *s, Token **params, int nparams)
     return make_tok_num(NULL, nparams);
 }
 
+/* %offsetof() function */
+static Token *
+stdmac_offsetof(const SMacro *s, Token **params, int nparams)
+{
+    Token *type_tok;
+    Token *member_tok;
+    size_t offset = SIZE_MAX;
+
+    if (nparams != 2) {
+        nasm_nonfatal("`%s' requires exactly two parameters", s->name);
+        return NULL;
+    }
+
+    type_tok = skip_white(params[0]);
+    if (!tok_is(type_tok, TOKEN_ID)) {
+        nasm_nonfatal("`%s' requires a type as first parameter", s->name);
+        return NULL;
+    }
+
+    member_tok = skip_white(params[1]);
+    if (!tok_is(member_tok, TOKEN_ID)) {
+        nasm_nonfatal("`%s' requires a member name as second parameter",
+                      s->name);
+        return NULL;
+    }
+
+    if (nasm_user_data && nasm_user_data->offsetof_handler) {
+        offset = nasm_user_data->offsetof_handler(nasm_user_data,
+                                                  tok_text(type_tok),
+                                                  tok_text(member_tok));
+    }
+
+    if (offset == SIZE_MAX)
+        return NULL;
+
+    return make_tok_num(NULL, offset);
+}
+
+/* %sizeof() function */
+static Token *
+stdmac_sizeof(const SMacro *s, Token **params, int nparams)
+{
+    Token *name_tok;
+    int is_mult = 0;
+    size_t size = SIZE_MAX;
+
+    if (nparams != 1) {
+        nasm_nonfatal("`%s' requires exactly one parameter", s->name);
+        return NULL;
+    }
+
+    name_tok = skip_white(params[0]);
+    if (!tok_is(name_tok, TOKEN_ID)) {
+        if (!tok_is(name_tok, TOKEN_MULT)) {
+            nasm_nonfatal("`%s' requires a type as first parameter", s->name);
+            return NULL;
+        }
+
+        name_tok = skip_white(name_tok->next);
+        if (!tok_is(name_tok, TOKEN_ID)) {
+            nasm_nonfatal("`%s' requires a type as first parameter", s->name);
+            return NULL;
+        }
+
+        is_mult = 1;
+    }
+
+    if (nasm_user_data && nasm_user_data->sizeof_handler) {
+        size = nasm_user_data->sizeof_handler(nasm_user_data,
+                                              tok_text(name_tok), is_mult);
+    }
+
+    if (size == SIZE_MAX)
+        return NULL;
+
+    return make_tok_num(NULL, size);
+}
+
 /* %num() function */
 static Token *
 stdmac_num(const SMacro *s, Token **params, int nparam)
@@ -8274,9 +8409,11 @@ static void pp_add_magic_simple(void)
         { "%hs2b",       false, 1, SPARM_STR|SPARM_CONDQUOTE|SPARM_VARADIC, stdmac_hs2b },
         { "%map",	 false, 1, SPARM_VARADIC, stdmac_map },
         { "%null",       false, 1, SPARM_GREEDY, stdmac_null },
+        { "%offsetof",   false, 2, SPARM_PLAIN, stdmac_offsetof },
         { "%pathsearch", false, 1, SPARM_PLAIN, stdmac_pathsearch },
         { "%realpath",	 false, 1, SPARM_PLAIN, stdmac_realpath },
         { "%selbits",    false, 1, SPARM_PLAIN|SPARM_VARADIC, stdmac_selbits },
+        { "%sizeof",     false, 1, SPARM_PLAIN, stdmac_sizeof },
         { "%str",        false, 1, SPARM_GREEDY|SPARM_STR, stdmac_join },
         { "%strcat",     false, 1, SPARM_STR|SPARM_CONDQUOTE|SPARM_VARADIC, stdmac_strcat },
         { "%strlen",     false, 1, SPARM_STR|SPARM_CONDQUOTE, stdmac_strlen },
@@ -8565,10 +8702,14 @@ void pp_reset(const char *file, enum preproc_mode mode,
 
     /* First set up the top level input file */
     nasm_new(istk);
-    istk->fp = nasm_open_read(file, NF_TEXT);
-    if (!istk->fp) {
-	nasm_fatalf(ERR_NOFILE, "unable to open input file `%s'%s%s",
-                    file, errno ? " " : "", errno ? strerror(errno) : "");
+    if (nasm_user_data && nasm_user_data->codes && nasm_user_data->num_codes > 0) {
+        istk->fp = NASM_INLINE_INPUT_SENTINEL;
+    } else {
+        istk->fp = nasm_open_read(file, NF_TEXT);
+        if (!istk->fp) {
+	    nasm_fatalf(ERR_NOFILE, "unable to open input file `%s'%s%s",
+                        file, errno ? " " : "", errno ? strerror(errno) : "");
+        }
     }
     src_set(0, file);
     istk->where = src_where();
@@ -8716,6 +8857,12 @@ static Token *pp_tokline(void)
                         debug_macro_end(fm);
                 }
 
+                if (nasm_user_data && nasm_user_data->mmac_start_end_handler &&
+                    fm->name) {
+                    nasm_user_data->mmac_start_end_handler(nasm_user_data,
+                                                           fm->name, 0);
+                }
+
                 istk->where = l->where;
                 pop_mstk(&istk->mstk, m);
             }
@@ -8742,11 +8889,22 @@ static Token *pp_tokline(void)
             tline = l->first;
             l->first = NULL;    /* Otherwise double free at free_line() */
 
-            if (!istk->nolist && !suppressed) {
-                char *listline;
-                listline = detoken(tline, false);
-                lfmt->line(LIST_MACRO, istk->where.lineno, listline);
-                nasm_free(listline);
+            if (!suppressed &&
+                (!istk->nolist ||
+                 (nasm_user_data &&
+                  nasm_user_data->expand_mmac_line_handler))) {
+                char *line_source = detoken(tline, false);
+
+                if (!istk->nolist)
+                    lfmt->line(LIST_MACRO, istk->where.lineno, line_source);
+
+                if (nasm_user_data &&
+                    nasm_user_data->expand_mmac_line_handler) {
+                    nasm_user_data->expand_mmac_line_handler(nasm_user_data,
+                                                             line_source);
+                }
+
+                nasm_free(line_source);
             }
 
             free_line(l);
@@ -8782,7 +8940,10 @@ static Token *pp_tokline(void)
         /*
          * If in a non-emitting branch, suppress this output line
          */
-        suppressed |= istk->conds && !emitting(istk->conds->state);
+        {
+            bool cond_suppressed = istk->conds && !emitting(istk->conds->state);
+            suppressed |= cond_suppressed;
+        }
 
         /*
          * We must expand MMacro parameters and MMacro-local labels
@@ -8794,8 +8955,21 @@ static Token *pp_tokline(void)
          * condition, in which case we don't want to meddle with
          * anything.
          */
-        if (!defining && !suppressed)
+        if (!defining && !suppressed) {
             tline = expand_mmac_params(tline);
+
+            if (nasm_user_data &&
+                nasm_user_data->expand_mmac_params_handler) {
+                char *new_line = nasm_user_data->expand_mmac_params_handler(
+                    nasm_user_data, tline);
+
+                if (new_line) {
+                    delete_tlist(tline);
+                    tline = expand_mmac_params(tokenize(new_line));
+                    nasm_free(new_line);
+                }
+            }
+        }
 
         /*
          * Check the line to see if it's a preprocessor directive.
@@ -8840,6 +9014,15 @@ static Token *pp_tokline(void)
              * emerge from the condition we'll give a line-number
              * directive so we keep our place correctly.
              */
+            if (istk->conds && !emitting(istk->conds->state) &&
+                nasm_user_data &&
+                !nasm_user_data->module_compile &&
+                nasm_user_data->cond_false_handler &&
+                nasm_user_data->current_code &&
+                !nasm_user_data->current_code->is_comment) {
+                nasm_user_data->cond_false_handler(nasm_user_data);
+            }
+
             delete_tlist(tline);
         } else {
             tline = expand_smacro(tline);
@@ -9142,6 +9325,26 @@ void pp_error_list_macros(errflags severity)
     }
 
     src_error_reset();
+}
+
+void *define_smacro_num(const char *mname, size_t def)
+{
+    return define_smacro(mname, true, make_tok_num(NULL, (int64_t)def), NULL);
+}
+
+void *define_smacro_express(const char *mname, const char *def)
+{
+    return define_smacro(mname, true, tokenize(def), NULL);
+}
+
+char *nasm_smacro_get_name(void *m)
+{
+    return m ? ((SMacro *)m)->name : NULL;
+}
+
+const char *nasm_token_get_text(void *t)
+{
+    return t ? tok_text((Token *)t) : NULL;
 }
 
 #if DEBUG_MMACRO_REFCOUNTS

@@ -131,6 +131,7 @@ void error_init(void);
 void error_pass_start(bool final);
 void error_pass_end(void);
 void error_cleanup_session(void); /* EPLIA: free warning_stack at exit */
+void error_set_fatal_jmpbuf(void *buf); /* EPLIA: non-null enables fatal longjmp for embedded use */
 
 /* Process a warning option or directive */
 bool set_warning_status(const char *value);

@@ -6,7 +6,9 @@
  */
 
 #include "compiler.h"
+#include <setjmp.h>
 #include "nasmlib.h"
+#include "nasm.h"
 #include "error.h"
 #include "listing.h"
 #include "srcfile.h"
@@ -41,6 +43,7 @@ struct warning_stack {
 };
 static struct warning_stack *warning_stack, *warning_state_init;
 static struct strlist *warn_list;
+static jmp_buf *fatal_jmpbuf;
 
 /* Push the warning status onto the warning stack */
 void push_warnings(void)
@@ -122,6 +125,11 @@ void error_cleanup_session(void)
         warning_stack = NULL;
         warning_state_init = NULL;
     }
+}
+
+void error_set_fatal_jmpbuf(void *buf)
+{
+    fatal_jmpbuf = (jmp_buf *)buf;
 }
 
 /*
@@ -380,6 +388,12 @@ static const char no_file_name[] = "nasm"; /* What to print if no file name */
  */
 static_fatal_func die_hard(errflags true_type, errflags severity)
 {
+    if (fatal_jmpbuf && nasm_user_data) {
+        if (true_type > erropt.worst)
+            erropt.worst = true_type;
+        longjmp(*fatal_jmpbuf, 1);
+    }
+
     if (true_type < ERR_PANIC || !erropt.abort_on_panic) {
         if (true_type < ERR_CRITICAL) {
             /* FATAL shutdown, general cleanup actions are valid */
@@ -690,6 +704,18 @@ static void nasm_issue_error(struct nasm_errtext *et)
                     file, linestr, errfmt->beforemsg,
                     pfx, et->msg, cerrsep, cerrmsg,
                     here, warnsuf);
+        }
+
+        if (nasm_user_data && nasm_user_data->report &&
+            nasm_user_data->current_code) {
+            const char *inst = nasm_user_data->current_code->inst ?
+                nasm_user_data->current_code->inst : "";
+
+            nasm_user_data->report(
+                nasm_user_data, nasm_user_data->current_code->offset,
+                "%s%s (%s) %s%s%s%s%s%s%s\r\n",
+                file, linestr, inst, errfmt->beforemsg,
+                pfx, et->msg, cerrsep, cerrmsg, here, warnsuf);
         }
     }
 

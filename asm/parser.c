@@ -766,9 +766,20 @@ restart_parse:
              * Generally fix things. I think this is right as it is, but
              * am still not certain.
              */
-            define_label(result->label,
-                         in_absolute ? absolute.segment : location.segment,
-                         location.offset, true);
+            int32_t segment = in_absolute ? absolute.segment : location.segment;
+            const char *section_name = nasm_section_name(segment);
+
+            if (nasm_user_data && nasm_user_data->hash_func &&
+                section_name &&
+                !nasm_stricmp(section_name, NASM_CONST_SEGMENT_NAME)) {
+                char *new_label = nasm_strcat(NASM_CONST_SEGMENT_LABEL_PREFIX,
+                                              result->label);
+                int64_t hashed_offset = (int64_t)nasm_user_data->hash_func(new_label);
+                define_label(result->label, segment, hashed_offset, true);
+                nasm_free(new_label);
+            } else {
+                define_label(result->label, segment, location.offset, true);
+            }
         }
     }
 
