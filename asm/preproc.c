@@ -1008,11 +1008,15 @@ static void free_include(Include *i, bool check_endif)
         nasm_fatal("expected `%%endif' before end of file");
 
     free_conds(i->conds);
-    free_llist(i->expansion);
-    nasm_free(i->data);
-
+    /*
+     * Release include stack macro references before freeing expansion lines.
+     * Some pending end-markers in i->expansion may refer to the same MMacro
+     * objects; doing this in reverse order can leave stale pointers in mstk.
+     */
     put_mmacro(&i->mstk.mstk);
     put_mmacro(&i->mstk.mmac);
+    free_llist(i->expansion);
+    nasm_free(i->data);
     nasm_free(i);
 }
 
