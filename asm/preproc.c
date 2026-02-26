@@ -8955,7 +8955,8 @@ static Token *pp_tokline(void)
          * condition, in which case we don't want to meddle with
          * anything.
          */
-        if (!defining && !suppressed) {
+        if (!defining && !suppressed &&
+            !(istk->mstk.mmac && !istk->mstk.mmac->in_progress)) {
             tline = expand_mmac_params(tline);
 
             if (nasm_user_data &&
