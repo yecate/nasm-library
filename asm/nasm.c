@@ -356,6 +356,12 @@ static void preproc_init(struct strlist *ipath)
     pp_include_path(ipath);
 }
 
+void pp_add_include_path(const char *path)
+{
+    if (include_path && path)
+        strlist_add(include_path, path);
+}
+
 static void emit_dependencies(struct strlist *list)
 {
     FILE *deps;

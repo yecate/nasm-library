@@ -44,49 +44,49 @@ static inline bool nasm_ctype(unsigned char x, enum nasm_ctype mask)
 
 static inline bool nasm_isspace(char x)
 {
-    return nasm_ctype(x, NCT_SPACE);
+    return nasm_ctype(x, (enum nasm_ctype)NCT_SPACE);
 }
 
 static inline bool nasm_isalpha(char x)
 {
-    return nasm_ctype(x, NCT_LOWER|NCT_UPPER);
+    return nasm_ctype(x, (enum nasm_ctype)(NCT_LOWER|NCT_UPPER));
 }
 
 static inline bool nasm_isdigit(char x)
 {
-    return nasm_ctype(x, NCT_DIGIT);
+    return nasm_ctype(x, (enum nasm_ctype)NCT_DIGIT);
 }
 static inline bool nasm_isalnum(char x)
 {
-    return nasm_ctype(x, NCT_LOWER|NCT_UPPER|NCT_DIGIT);
+    return nasm_ctype(x, (enum nasm_ctype)(NCT_LOWER|NCT_UPPER|NCT_DIGIT));
 }
 static inline bool nasm_isxdigit(char x)
 {
-    return nasm_ctype(x, NCT_HEX);
+    return nasm_ctype(x, (enum nasm_ctype)NCT_HEX);
 }
 static inline bool nasm_isidstart(char x)
 {
-    return nasm_ctype(x, NCT_IDSTART);
+    return nasm_ctype(x, (enum nasm_ctype)NCT_IDSTART);
 }
 static inline bool nasm_isidchar(char x)
 {
-    return nasm_ctype(x, NCT_ID);
+    return nasm_ctype(x, (enum nasm_ctype)NCT_ID);
 }
 static inline bool nasm_isbrcchar(char x)
 {
-    return nasm_ctype(x, NCT_ID|NCT_MINUS);
+    return nasm_ctype(x, (enum nasm_ctype)(NCT_ID|NCT_MINUS));
 }
 static inline bool nasm_isnumstart(char x)
 {
-    return nasm_ctype(x, NCT_DIGIT|NCT_DOLLAR);
+    return nasm_ctype(x, (enum nasm_ctype)(NCT_DIGIT|NCT_DOLLAR));
 }
 static inline bool nasm_isnumchar(char x)
 {
-    return nasm_ctype(x, NCT_DIGIT|NCT_LOWER|NCT_UPPER|NCT_UNDER);
+    return nasm_ctype(x, (enum nasm_ctype)(NCT_DIGIT|NCT_LOWER|NCT_UPPER|NCT_UNDER));
 }
 static inline bool nasm_isquote(char x)
 {
-    return nasm_ctype(x, NCT_QUOTE);
+    return nasm_ctype(x, (enum nasm_ctype)NCT_QUOTE);
 }
 
 static inline void nasm_ctype_tasm_mode(void)

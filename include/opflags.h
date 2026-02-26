@@ -137,9 +137,9 @@
                                  REG_CLASS_RM_ZMM|REG_CLASS_RM_TMM)
 
 /* Helper function to test for a value matching a class */
-static inline bool is_class(opflags_t class, opflags_t op)
+static inline bool is_class(opflags_t cclass, opflags_t op)
 {
-    return !(class & ~op);
+    return !(cclass & ~op);
 }
 
 /* Verify a token value is a valid register */
@@ -149,12 +149,12 @@ static inline bool is_register(int reg)
 }
 
 /* Helper function to test if a token is a register matching a class */
-static inline bool is_reg_class(opflags_t class, int reg)
+static inline bool is_reg_class(opflags_t cclass, int reg)
 {
     if (!is_register(reg))
         return false;
 
-    return is_class(class, nasm_reg_flags[reg]);
+    return is_class(cclass, nasm_reg_flags[reg]);
 }
 
 #define IS_SREG(reg)                is_reg_class(REG_SREG, (reg))

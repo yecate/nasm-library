@@ -11,5 +11,6 @@
 void init_sync(void);
 void add_sync(uint64_t position, uint64_t length);
 uint64_t next_sync(uint64_t position, uint64_t *length);
+void clear_sync(void);
 
 #endif

@@ -9156,6 +9156,28 @@ void pp_pre_define(char *definition)
     predef = l;
 }
 
+void pp_pre_idefine(char *definition)
+{
+    Token *def, *space;
+    Line *l;
+    char *equals;
+
+    equals = strchr(definition, '=');
+    space = new_White(NULL);
+    def = new_Token(space, TOKEN_PREPROC_ID, "%idefine", 0);
+    if (equals)
+        *equals = ' ';
+    space->next = tokenize(definition);
+    if (equals)
+        *equals = '=';
+
+    nasm_new(l);
+    l->next = predef;
+    l->first = def;
+    l->finishes = NULL;
+    predef = l;
+}
+
 void pp_pre_undefine(char *definition)
 {
     Token *def, *space;
@@ -9345,6 +9367,16 @@ char *nasm_smacro_get_name(void *m)
 const char *nasm_token_get_text(void *t)
 {
     return t ? tok_text((Token *)t) : NULL;
+}
+
+int nasm_token_get_type(void *t)
+{
+    return t ? ((Token *)t)->type : TOKEN_EOS;
+}
+
+void *nasm_token_get_next(void *t)
+{
+    return t ? ((Token *)t)->next : NULL;
 }
 
 #if DEBUG_MMACRO_REFCOUNTS

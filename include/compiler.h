@@ -24,20 +24,20 @@
 /* On Microsoft platforms we support multibyte character sets in filenames */
 #define _MBCS 1
 
-#include "autoconf/attribute.h"
+#include "../autoconf/attribute.h"
 
 #ifdef HAVE_CONFIG_H
-# include "config/config.h"
+# include "../config/config.h"
 #else
 # if defined(_MSC_VER) && (_MSC_VER >= 1310)
-#  include "config/msvc.h"
+#  include "../config/msvc.h"
 # elif defined(__WATCOMC__)
-#  include "config/watcom.h"
+#  include "../config/watcom.h"
 # else
-#  include "config/unknown.h"
+#  include "../config/unknown.h"
 # endif
 /* This unconditionally defines some macros we really want */
-# include "config/unconfig.h"
+# include "../config/unconfig.h"
 #endif /* Configuration file */
 
 /* This is required to get the standard <inttypes.h> macros when compiling

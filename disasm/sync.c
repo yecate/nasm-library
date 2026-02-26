@@ -40,6 +40,14 @@ void init_sync(void)
     nsynx = 0;
 }
 
+void clear_sync(void)
+{
+    nsynx = 0;
+    max_synx = 0;
+    nasm_free(synx);
+    synx = NULL;
+}
+
 void add_sync(uint64_t pos, uint64_t length)
 {
     size_t i;

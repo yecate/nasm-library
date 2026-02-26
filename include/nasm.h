@@ -480,6 +480,7 @@ void pp_cleanup_session(void);
 
 /* Early definitions and undefinitions for macros */
 void pp_pre_define(char *definition);
+void pp_pre_idefine(char *definition);
 void pp_pre_undefine(char *definition);
 
 /* Include file from command line */
@@ -490,6 +491,7 @@ void pp_pre_command(const char *what, char *str);
 
 /* Include path from command line */
 void pp_include_path(struct strlist *ipath);
+void pp_add_include_path(const char *path);
 
 /* Unwind the macro stack when printing an error message */
 void pp_error_list_macros(errflags severity);
@@ -1693,6 +1695,8 @@ struct SAA *nasm_outbin_get_text_section_content(void);
 struct SAA *nasm_outbin_get_section_content(int segment);
 char *nasm_smacro_get_name(void *m);
 const char *nasm_token_get_text(void *t);
+int nasm_token_get_type(void *t);
+void *nasm_token_get_next(void *t);
 const char *nasm_section_name(int32_t segment);
 
 #endif  /* NASM_NASM_H */
