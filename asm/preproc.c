@@ -1334,14 +1334,7 @@ static void free_mmacro_table(struct hash_table *mmt)
 
     hash_for_each(mmt, it, np) {
         MMacro *m = np->data;
-        /*
-         * Embedded integration safety:
-         * key storage ownership can become inconsistent across callback-heavy
-         * sessions; skipping key free avoids host heap corruption on teardown.
-         * The hash table storage itself is still released by hash_free().
-         */
-        if (!nasm_user_data)
-            nasm_free((void *)np->key);
+        nasm_free((void *)np->key);
         free_mmacro_list(&m);
     }
     hash_free(mmt);

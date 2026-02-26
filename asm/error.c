@@ -117,8 +117,11 @@ void error_pass_end(void)
 }
 
 /* EPLIA: free the initial warning stack entry kept by reset_warnings */
+static void free_errhold_stack(void);
 void error_cleanup_session(void)
 {
+    free_errhold_stack();
+
     /* Free the initial warning stack entry kept by reset_warnings */
     if (warning_stack) {
         nasm_free(warning_stack);
@@ -508,6 +511,20 @@ static void nasm_free_error(struct nasm_errtext *et)
     nasm_free(et);
 }
 
+/* EPLIA: drain any pending errhold stacks (leaked on fatal paths) */
+static void free_errhold_stack(void)
+{
+    while (errhold_stack) {
+        struct nasm_errhold *eh = errhold_stack;
+        struct nasm_errtext *et, *etmp;
+        errhold_stack = eh->up;
+        list_for_each_safe(et, etmp, eh->head) {
+            nasm_free_error(et);
+        }
+        nasm_free(eh);
+    }
+}
+
 static void nasm_issue_error(struct nasm_errtext *et);
 
 struct nasm_errhold *nasm_error_hold_push(void)
@@ -745,6 +762,7 @@ static void nasm_issue_error(struct nasm_errtext *et)
         goto done;
 
     if (true_type >= ERR_FATAL) {
+        nasm_free_error(et);
         die_hard(true_type, severity);
     } else if (!buffer) {
         if (true_type > erropt.worst)

@@ -13,10 +13,46 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include "nasmlib.h"
 #include "hashtbl.h"
 #include "error.h"
 #include "alloc.h"
+
+/* Log file for memleak output (GUI apps have no stderr console) */
+static FILE *memleak_logfp = NULL;
+
+static FILE *memleak_open_log(void)
+{
+    char path[MAX_PATH + 32];
+    const char *tmp;
+
+    if (memleak_logfp)
+        return memleak_logfp;
+
+    tmp = getenv("TEMP");
+    if (!tmp) tmp = getenv("TMP");
+    if (!tmp) tmp = ".";
+
+    snprintf(path, sizeof(path), "%s\\nasm_memleak.log", tmp);
+    memleak_logfp = fopen(path, "w");
+    return memleak_logfp;
+}
+
+/* Write to log file, fall back to stderr */
+static void memleak_printf(const char *fmt, ...)
+{
+    va_list ap;
+    FILE *fp = memleak_logfp ? memleak_logfp : memleak_open_log();
+    if (!fp) fp = stderr;
+
+    va_start(ap, fmt);
+    vfprintf(fp, fmt, ap);
+    va_end(ap);
+    fflush(fp);
+}
 
 /* Memory allocation record - using a simple linked list instead of hash table */
 struct mem_record {
@@ -61,8 +97,7 @@ void memleak_init(void)
 
     atexit(memleak_cleanup);
 
-    fprintf(stderr, "[MEMLEAK] Memory leak detection enabled\n");
-    fflush(stderr);
+    memleak_printf("[MEMLEAK] Memory leak detection enabled\n");
 }
 
 /* Track a memory allocation */
@@ -85,7 +120,7 @@ static void track_alloc(void *ptr, size_t size, const char *file, int line)
     /* Use raw malloc to avoid infinite recursion */
     rec = malloc(sizeof(struct mem_record));
     if (!rec) {
-        fprintf(stderr, "[MEMLEAK] Failed to allocate tracking record!\n");
+        memleak_printf("[MEMLEAK] Failed to allocate tracking record!\n");
         tracking_disabled = 0;
         return;
     }
@@ -166,17 +201,17 @@ void memleak_cleanup(void)
     if (!memleak_initialized)
         return;
 
-    fprintf(stderr, "\n");
-    fprintf(stderr, "========================================\n");
-    fprintf(stderr, "Memory Leak Detection Report\n");
-    fprintf(stderr, "========================================\n");
-    fprintf(stderr, "Total allocated:     %zu bytes (%zu calls)\n",
+    memleak_printf( "\n");
+    memleak_printf( "========================================\n");
+    memleak_printf( "Memory Leak Detection Report\n");
+    memleak_printf( "========================================\n");
+    memleak_printf( "Total allocated:     %zu bytes (%zu calls)\n",
             total_allocated, alloc_count);
-    fprintf(stderr, "Total freed:         %zu bytes (%zu calls)\n",
+    memleak_printf( "Total freed:         %zu bytes (%zu calls)\n",
             total_freed, free_count);
-    fprintf(stderr, "Peak memory usage:   %zu bytes\n", peak_allocated);
-    fprintf(stderr, "Current allocated:   %zu bytes\n", current_allocated);
-    fprintf(stderr, "\n");
+    memleak_printf( "Peak memory usage:   %zu bytes\n", peak_allocated);
+    memleak_printf( "Current allocated:   %zu bytes\n", current_allocated);
+    memleak_printf( "\n");
 
     env_limit = getenv("NASM_MEMLEAK_MAX_REPORT");
     if (env_limit && *env_limit) {
@@ -194,13 +229,13 @@ void memleak_cleanup(void)
             continue;
 
         if (leak_count == 0) {
-            fprintf(stderr, "MEMORY LEAKS DETECTED:\n");
-            fprintf(stderr, "----------------------------------------\n");
+            memleak_printf( "MEMORY LEAKS DETECTED:\n");
+            memleak_printf( "----------------------------------------\n");
         }
         if (leak_count < report_limit) {
-            fprintf(stderr, "[%zu] %zu bytes at %p\n",
+            memleak_printf( "[%zu] %zu bytes at %p\n",
                     leak_count + 1, rec->size, rec->ptr);
-            fprintf(stderr, "     Allocated at %s:%d\n", rec->file, rec->line);
+            memleak_printf( "     Allocated at %s:%d\n", rec->file, rec->line);
         }
         leak_count++;
         leak_bytes += rec->size;
@@ -208,16 +243,16 @@ void memleak_cleanup(void)
 
     if (leak_count > 0) {
         if (leak_count > report_limit) {
-            fprintf(stderr, "... %zu more leaks omitted (set NASM_MEMLEAK_MAX_REPORT to change limit)\n",
+            memleak_printf( "... %zu more leaks omitted (set NASM_MEMLEAK_MAX_REPORT to change limit)\n",
                     leak_count - report_limit);
         }
-        fprintf(stderr, "----------------------------------------\n");
-        fprintf(stderr, "Total leaks: %zu allocations, %zu bytes\n",
+        memleak_printf( "----------------------------------------\n");
+        memleak_printf( "Total leaks: %zu allocations, %zu bytes\n",
                 leak_count, leak_bytes);
     } else {
-        fprintf(stderr, "No memory leaks detected!\n");
+        memleak_printf( "No memory leaks detected!\n");
     }
-    fprintf(stderr, "========================================\n");
+    memleak_printf( "========================================\n");
 
     /* Free tracking records */
     rec = mem_list_head;
@@ -228,6 +263,11 @@ void memleak_cleanup(void)
     }
     mem_list_head = NULL;
     memleak_initialized = 0;
+
+    if (memleak_logfp) {
+        fclose(memleak_logfp);
+        memleak_logfp = NULL;
+    }
 }
 
 /* Print current allocation stats for debugging */
@@ -274,11 +314,11 @@ void memleak_print_current(const char *label)
         }
     }
 
-    fprintf(stderr, "[MEMLEAK] %s: %zu allocs, %zu bytes still alive\n",
+    memleak_printf( "[MEMLEAK] %s: %zu allocs, %zu bytes still alive\n",
             label, leak_count, leak_bytes);
     for (i = 0; i < num_sites; i++) {
         if (top_sites[i].count > 5) {
-            fprintf(stderr, "  %s:%d => %zu allocs, %zu bytes\n",
+            memleak_printf( "  %s:%d => %zu allocs, %zu bytes\n",
                     top_sites[i].file, top_sites[i].line,
                     top_sites[i].count, top_sites[i].bytes);
         }

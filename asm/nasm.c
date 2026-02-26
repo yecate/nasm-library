@@ -1914,6 +1914,7 @@ bool nasm_assemble_func(const char *func_name, struct nasm_user_data *data)
     } else {
         /* Fatal path in embedded mode: never terminate host process. */
         success = false;
+        ofmt->cleanup();
         close_output(true);
     }
 
