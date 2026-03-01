@@ -1888,6 +1888,9 @@ static Token *tokenize(const char *line)
                 type = TOKEN_EOS;
         } else if (*p == ';') {
             type = TOKEN_EOS;
+        } else if (*p == '/' && p[1] == '/') {
+            /* EPLIA: compatibility with C++ style line comments */
+            type = TOKEN_EOS;
         } else {
             /*
              * Anything else is an operator of some kind. We check
@@ -8455,10 +8458,14 @@ static void pp_add_magic_simple(void)
         { "%map",	 false, 1, SPARM_VARADIC, stdmac_map },
         { "%null",       false, 1, SPARM_GREEDY, stdmac_null },
         { "%offsetof",   false, 2, SPARM_PLAIN, stdmac_offsetof },
+        /* EPLIA compatibility: legacy syntax without '%' */
+        { "offsetof",    false, 2, SPARM_PLAIN, stdmac_offsetof },
         { "%pathsearch", false, 1, SPARM_PLAIN, stdmac_pathsearch },
         { "%realpath",	 false, 1, SPARM_PLAIN, stdmac_realpath },
         { "%selbits",    false, 1, SPARM_PLAIN|SPARM_VARADIC, stdmac_selbits },
         { "%sizeof",     false, 1, SPARM_PLAIN, stdmac_sizeof },
+        /* EPLIA compatibility: legacy syntax without '%' */
+        { "sizeof",      false, 1, SPARM_PLAIN, stdmac_sizeof },
         { "%str",        false, 1, SPARM_GREEDY|SPARM_STR, stdmac_join },
         { "%strcat",     false, 1, SPARM_STR|SPARM_CONDQUOTE|SPARM_VARADIC, stdmac_strcat },
         { "%strlen",     false, 1, SPARM_STR|SPARM_CONDQUOTE, stdmac_strlen },
