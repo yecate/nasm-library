@@ -1595,6 +1595,7 @@ struct nasm_code {
     size_t index_inst;    /* Instruction index in source line */
     bool is_comment;      /* Comment/placeholder marker */
     bool is_entry;        /* Entry marker */
+    void *cached_line;    /* Cached line lookup result (host side) */
 };
 
 struct Token;
